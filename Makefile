@@ -42,19 +42,19 @@ EXT-TOOL:
 # TOOL-sniffer
 #---------------------------------------------------------------------------
 
-TOOL-sniffer:
-	mkdir TOOL-sniffer-tmp
-	cd TOOL-sniffer-tmp \
-  && git clone https://gforge.inria.fr/git/contiki-hiper/contiki-hiper.git \
-     -b sniffer contiki-sniffer
-	mv TOOL-sniffer-tmp TOOL-sniffer
+#TOOL-sniffer:
+#	mkdir TOOL-sniffer-tmp
+#	cd TOOL-sniffer-tmp \
+#  && git clone https://gforge.inria.fr/git/contiki-hiper/contiki-hiper.git \
+#     -b sniffer contiki-sniffer
+#	mv TOOL-sniffer-tmp TOOL-sniffer
 
 #---------------------------------------------------------------------------
 # Automatic ino sketch building directory
 #---------------------------------------------------------------------------
 
 BUILD-%:
-	make external-lib TOOL-sniffer
+	make external-lib #TOOL-sniffer
 	@test -e src/$*.ino || { echo "ERROR: No sketch src/$*.ino" ; exit 1 ;} 
 	mkdir $@ && cd $@ && ino init
 	for i in EXT-LIB/* ; do (cd $@/lib && ln -s ../../$$i) ; done
