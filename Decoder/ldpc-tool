@@ -1,0 +1,161 @@
+#! /usr/bin/python
+#---------------------------------------------------------------------------
+#  . Cedric Adjih, Infine Project-Team, Inria Saclay - Ile-de-France
+# Copyright 2015 Inria. 
+# All rights reserved.  Distributed only with permission.
+#---------------------------------------------------------------------------
+
+import argparse, os, subprocess
+import pprint
+J = os.path.join
+
+# from http://www.cs.utoronto.ca/~radford/ldpc.software.html
+#DefaultProgPath = "/home/user/LDPC-2006-02-08"
+DefaultProgPath = "LDPC-2006-02-08"
+
+#---------------------------------------------------------------------------
+
+def generateCFile(fileName, ldpcOf):
+    nbPacket = max(ldpcOf.keys())+1
+    nbCoded = max([ max(xl) for xl in ldpcOf.values() ])+1
+    codeDensity = max([ len(xl) for xl in ldpcOf.values() ])
+
+    r  = "#include <stdint.h>\n" 
+    r += "#define NB_SOURCE_PACKET   %s\n" % nbPacket
+    r += "#define NB_CODED_PACKET    %s\n" % nbCoded
+    r += "#define CODE_DENSITY       %s\n" % codeDensity
+    r += "#define NO_PACKET        0xffu\n"
+    r += "static const uint8_t codedPacketIndexOf[NB_SOURCE_PACKET][CODE_DENSITY] = {\n"
+    rList = []
+    for i in range(nbPacket):
+        s = "{" 
+        l = [("%s"%x).rjust(3) for x in sorted(ldpcOf[i])]
+        assert len(l) <= codeDensity
+        l += ["NO_PACKET"] * (codeDensity - (len(l)))
+        s += ", ".join(l)
+        s += "}"
+        rList.append(s)
+    r += "    " + ",\n    ".join(rList) +"\n"
+    r += "};\n"
+
+    print r
+
+    with open(fileName, "w") as f:
+        f.write(r)
+
+    print codeDensity
+
+
+def generateCode(args):
+    makeLdpc = J(DefaultProgPath, "make-ldpc")
+    prefix = "ldpc-N%s-K%s-C%s-S%s" % (
+        args.nb_source, args.nb_coded, args.nb_col, args.seed)
+    checkFileName = prefix + ".pchk"
+    checkCmd = [
+        makeLdpc, checkFileName, 
+        "%s" % args.nb_coded,
+        "%s" % (args.nb_source + args.nb_coded),
+        "%s" % args.seed,
+        "evenboth",
+        "%s" % args.nb_col,
+        "no4cycle"
+    ]
+    print ("+ " + " ".join(checkCmd))
+    subprocess.check_call(checkCmd)
+
+    printLdpc = J(DefaultProgPath, "print-pchk")
+    subprocess.check_call([printLdpc, checkFileName])
+
+    makeGen = J(DefaultProgPath, "make-gen")
+    genFileName = prefix + ".gen"
+    genCmd = [makeGen, checkFileName, genFileName, "dense"]
+    print ("+ " + " ".join(genCmd))
+    subprocess.check_call(genCmd)
+
+    printGen = J(DefaultProgPath, "print-gen")
+    generatorMatrixStr = subprocess.check_output([printGen, genFileName])
+
+    marker = "Inv(A) X B:"
+    pos = generatorMatrixStr.find(marker)
+    if pos < 0: 
+        raise RuntimeError("cannot find marker", marker)
+    matrixStr = generatorMatrixStr[pos+len(marker):]
+    matrix = []
+    for line in matrixStr.split("\n"):
+        line = line.strip()
+        if len(line) == 0:
+            continue
+        coefList = [int(x) for x in line.split(" ")]
+        #print coefList, len(coefList)
+        assert len(coefList) == args.nb_source
+        matrix.append(coefList)
+    assert len(matrix) == args.nb_coded
+
+    ldpcOf = { i:set() for i in range(args.nb_source) }
+    for parityIdx,coefList in enumerate(matrix):
+        for srcIdx in range(len(coefList)):
+            if coefList[srcIdx] != 0:
+                ldpcOf[srcIdx].add(parityIdx)
+
+    ldpcOf = dict(enumerate(reversed(sorted(ldpcOf.values(), key=len))))
+
+    coefSetOfSeqNum = {}
+    for i in range(args.nb_source):
+        coefSetOfSeqNum[i] = set([i])
+    for i in range(args.nb_coded):
+        coefSetOfSeqNum[i+args.nb_source] = set()
+    for srcIdx, codedIdxSet in ldpcOf.iteritems():
+        for codedIdx in codedIdxSet:
+            coefSetOfSeqNum[codedIdx + args.nb_source].add(srcIdx)
+
+    #pprint.pprint(coefSetOfSeqNum)
+
+    # XXX: Hack
+    for n in range(1,args.nb_offset):
+        for seqNum in range(args.nb_source+args.nb_coded):
+            coefSetOfSeqNum[seqNum + n*args.nb_offset
+                        ] = coefSetOfSeqNum[seqNum]
+
+    info = {
+        "nb_coded": args.nb_coded,
+        "nb_source": args.nb_source,
+        "nb_offset": args.nb_offset,
+        "ldpcOf": ldpcOf,
+        "coefSetOfSeqNum": coefSetOfSeqNum
+    }
+    with open(prefix + ".pydat", "w") as f:
+        f.write(repr(info))
+
+    generateCFile(prefix + ".c", ldpcOf)
+
+
+
+#---------------------------------------------------------------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("command", type=str, choices=["generate"])
+parser.add_argument("--lpdc-prog-dir", type=str, default=DefaultProgPath)
+
+parser.add_argument("--nb-source", type=int, default=100)
+parser.add_argument("--nb-coded", type=int, default=20)
+parser.add_argument("--nb-col", type=int, default=2)
+parser.add_argument("--seed", type=int, default=1)
+parser.add_argument("--nb-offset", type=int, default=0x100)
+parser.add_argument("--auto-install-ldpc", type=bool, default=True)
+
+args = parser.parse_args()
+
+#---------------------------------------------------------------------------
+
+if args.auto_install_ldpc and not os.path.exists(DefaultProgPath):
+    if DefaultProgPath != "LDPC-2006-02-08":
+        raise RuntimeError("Unexpected path", DefaultProgPath)
+    subprocess.check_call(["bash", "-c", "wget http://www.cs.utoronto.ca/~radford/ftp/LDPC-2006-02-08/LDPC-2006-02-08.tar.gz && tar xzvf LDPC-2006-02-08.tar.gz && cd LDPC-2006-02-08 && make"])
+
+
+if args.command == "generate":
+    generateCode(args)
+else:
+    raise RuntimeError("unknown command", args.command)
+
+#---------------------------------------------------------------------------
