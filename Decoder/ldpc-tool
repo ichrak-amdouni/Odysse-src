@@ -101,20 +101,20 @@ def generateCode(args):
 
     coefSetOfSeqNum = {}
     for i in range(args.nb_source):
-        coefSetOfSeqNum[i] = set([i])
+        coefSetOfSeqNum[("uncoded",i)] = set([i])
     for i in range(args.nb_coded):
-        coefSetOfSeqNum[i+args.nb_source] = set()
+        coefSetOfSeqNum[("coded",i)] = set()
     for srcIdx, codedIdxSet in ldpcOf.iteritems():
         for codedIdx in codedIdxSet:
-            coefSetOfSeqNum[codedIdx + args.nb_source].add(srcIdx)
+            coefSetOfSeqNum[("coded",codedIdx)].add(srcIdx)
 
     #pprint.pprint(coefSetOfSeqNum)
 
     # XXX: Hack
-    for n in range(1,args.nb_offset):
-        for seqNum in range(args.nb_source+args.nb_coded):
-            coefSetOfSeqNum[seqNum + n*args.nb_offset
-                        ] = coefSetOfSeqNum[seqNum]
+    #for n in range(1,args.nb_offset):
+    #    for seqNum in range(args.nb_source+args.nb_coded):
+    #        coefSetOfSeqNum[seqNum + n*args.nb_offset
+    #                    ] = coefSetOfSeqNum[seqNum]
 
     info = {
         "nb_coded": args.nb_coded,
